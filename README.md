@@ -318,12 +318,12 @@ Validation uses **entirely unseen VM profiles** — true out-of-distribution eva
 
 ## Results
 
-### Model Performance — Final Epoch (Epoch 3, T4 GPU · GWA-Bitbrains)
+### Model Performance — Final Epoch
 
 | Metric | Train | Validation |
 |---|---|---|
-| Accuracy (within ±10%) | 88.83% | **92.87%** |
-| MAE (normalized) | 0.0430 | 0.0314 |
+| Accuracy | 88.83% | **92.87%** |
+| MAE  | 0.0430 | 0.0314 |
 | Huber Loss | 0.0033 | 0.0022 |
 
 > `val_accuracy > train_accuracy` — model **generalizes** to entirely unseen VM profiles
