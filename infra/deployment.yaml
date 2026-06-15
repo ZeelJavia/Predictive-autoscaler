@@ -1,0 +1,84 @@
+# ──────────────────────────────────────────────────────────────────
+# STEP 5 — Kubernetes Manifests for Minikube
+#
+# Apply with:
+#   kubectl apply -f deployment.yaml
+#   kubectl get pods -w
+# ──────────────────────────────────────────────────────────────────
+
+# 1. CPU Burner Deployment (target app being autoscaled)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cpu-burner
+  labels:
+    app: cpu-burner
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cpu-burner
+  template:
+    metadata:
+      labels:
+        app: cpu-burner
+    spec:
+      terminationGracePeriodSeconds: 30   # allow in-flight requests to complete
+      containers:
+      - name: cpu-burner
+        image: cpu-burner-app:v2
+        imagePullPolicy: IfNotPresent   # use local Minikube image
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 5"]  # drain in-flight requests before SIGTERM
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "64Mi"
+          limits:
+            cpu: "500m"      # 500m = 1.0 (100%) for CPU % calculation
+            memory: "256Mi"  # 256Mi = 100% for RAM % calculation
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 15
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+
+---
+# 2. CPU Burner Service — NodePort for Locust load test
+apiVersion: v1
+kind: Service
+metadata:
+  name: cpu-burner-service
+spec:
+  type: NodePort
+  selector:
+    app: cpu-burner
+  ports:
+    - port: 80
+      targetPort: 8080
+      nodePort: 30000
+
+---
+# 3. PodDisruptionBudget — keeps at least 1 pod alive during LSTM scale-down
+#    Prevents consumer from terminating all pods simultaneously
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cpu-burner-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: cpu-burner
+
