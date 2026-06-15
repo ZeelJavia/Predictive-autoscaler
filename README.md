@@ -77,18 +77,18 @@ This project solves it with **prediction**:
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║                    PRODUCTION INFERENCE PIPELINE                             ║
 ║                                                                              ║
-║  ┌─────────────────┐    ┌──────────────┐    ┌───────────────────────────┐  ║
-║  │  cpu-burner app │◄───│ Locust Load  │    │  Prometheus  +  Grafana   │  ║
-║  │  (Flask, 2+     │    │  Test        │    │  Dashboards               │  ║
-║  │   pods)         │    │ (/compute)   │    └──────────┬────────────────┘  ║
-║  └────────┬────────┘    └──────────────┘               │ scrape /metrics   ║
-║           │                                             │                   ║
-║           │ pod metrics (cpu%, ram, disk)               │                   ║
-║           ▼                                             ▼                   ║
+║  ┌─────────────────┐    ┌──────────────┐                                   ║
+║  │  cpu-burner app │◄───│ Locust Load  │                                   ║
+║  │  (Flask, 2+     │    │  Test        │                                   ║
+║  │   pods)         │    │ (/compute)   │                                   ║
+║  └────────┬────────┘    └──────────────┘                                   ║
+║           │                                                                  ║
+║           │ pod metrics (cpu%, ram, disk) every 5 min                        ║
+║           ▼                                                                  ║
 ║  ┌─────────────────┐                        ┌──────────────────────────┐   ║
 ║  │  pipeline/      │                        │  serving/main.py         │   ║
 ║  │  producer.py    │──POST /predict_scale──►│  FastAPI  +  ONNX model  │   ║
-║  │  (every 5s)     │                        │  Rolling window per VM   │   ║
+║  │  (every 5 min)  │                        │  Rolling window per VM   │   ║
 ║  └────────┬────────┘                        └──────────────────────────┘   ║
 ║           │                                                                  ║
 ║           │  Kafka topic: 'vm-metrics'                                       ║
@@ -169,9 +169,6 @@ lstm-predictive-autoscaler/
 │   ├── prometheus.yml                     # Prometheus scrape config
 │   └── Dockerfile.cpuburner              # Image for cpu-burner app
 │
-├── 🧪 tests/
-│   ├── test_onnx_model.py                 # 8 standalone ONNX model tests (no infra needed)
-│   └── test_api.py                        # 7 FastAPI endpoint integration tests
 │
 ├── 🔫 load_test/
 │   └── locustfile.py                      # Locust load test (NormalUser + SpikeUser)
@@ -210,18 +207,8 @@ minikube addons enable metrics-server
 cd infra/
 docker-compose up -d
 
-# Verify: all 5 services should be Up
+# Verify: all services should be Up
 docker-compose ps
-```
-
-Expected output:
-```
-NAME          STATUS
-zookeeper     running
-kafka         running
-redis         running
-prometheus    running
-grafana       running
 ```
 
 ### Step 2 — Deploy Target App
@@ -287,20 +274,6 @@ locust -f locustfile.py SpikeUser --users 100 --spawn-rate 20 \
 # SCALE UP: 2 → 4 pods
 ```
 
-### Step 7 — Monitor in Grafana
-
-```
-Open: http://localhost:3000  (admin / admin)
-Add datasource: Prometheus → http://prometheus:9090
-
-Key metrics:
-  lstm_predictions_total
-  lstm_scale_up_total
-  lstm_scale_down_total
-  lstm_inference_latency_ms
-  lstm_active_windows
-```
-
 ---
 
 ## Model Architecture
@@ -364,23 +337,6 @@ Validation uses **entirely unseen VM profiles** — true out-of-distribution eva
 | p99 | 3.10 ms |
 | Model size | **490 KB** |
 
-### Test Suite Results
-
-```
-python -X utf8 tests/test_onnx_model.py
-
-TEST 0 — Load ONNX model             [PASS]  Shape: (None,12,5) → (None,3)
-TEST 1 — Zero-input baseline          [PASS]  Output in valid range
-TEST 2 — High CPU (85%) → SCALE_UP   [PASS]  Predicted CPU:84.78% → SCALE_UP
-TEST 3 — Low  CPU (10%) → SCALE_DOWN [PASS]  Predicted CPU:5.54%  → SCALE_DOWN
-TEST 4 — Moderate (55%) → STABLE     [PASS]  Predicted CPU:55.68% → STABLE
-TEST 5 — Latency benchmark (100x)    [PASS]  avg 0.18ms < 50ms threshold
-TEST 6 — Batch consistency (8x)      [PASS]  Max diff: 0.00000000
-TEST 7 — Rolling window simulation   [PASS]  Prediction fires on tick 12
-
-RESULTS: 8 passed | 0 failed — model is production-ready!
-```
-
 ---
 
 ## Scaling Policy
@@ -409,7 +365,7 @@ RESULTS: 8 passed | 0 failed — model is production-ready!
 | **API Layer** | FastAPI, Uvicorn, Pydantic |
 | **Message Broker** | Apache Kafka + Zookeeper |
 | **State Store** | Redis 7 (rolling window buffer) |
-| **Observability** | Prometheus + Grafana |
+| **Observability** | Prometheus |
 | **Containerization** | Docker, Docker Compose |
 | **Orchestration** | Container replica scaling (Minikube for local testing) |
 | **Load Testing** | Locust |
@@ -492,8 +448,6 @@ Returns current rolling window fill status for a specific VM.
 |---|---|
 | [docs/PROJECT_DEEP_EXPLANATION.md](docs/PROJECT_DEEP_EXPLANATION.md) | Cell-by-cell notebook explanation with full technical justification |
 | [docs/HOW_TO_RUN.md](docs/HOW_TO_RUN.md) | Step-by-step run guide with troubleshooting |
-| [tests/test_onnx_model.py](tests/test_onnx_model.py) | Standalone model test suite |
-| [tests/test_api.py](tests/test_api.py) | FastAPI integration tests |
 
 ---
 
